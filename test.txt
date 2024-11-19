@@ -1,0 +1,231 @@
+const express = require("express");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+const { exec, spawn } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const mysql = require("mysql");
+const app = express();
+const port = 5002;
+const levenshtein = require("fast-levenshtein"); // นำเข้าไลบรารี Levenshtein สำหรับคำนวณความคล้ายคลึงของข้อความ
+
+app.use(cors());
+app.use(bodyParser.json());
+const db = mysql.createConnection({
+  host: "localhost",
+  user: "root",
+  password: "",
+  database: "dbcpkkbs",
+});
+
+
+let inputQueue = []; // Queue สำหรับเก็บ input ของผู้ใช้
+let waitingForInput = false;
+let currentCode = ""; // เก็บโค้ด Python ที่ต้องการรัน
+let lastPrompt = "";
+app.post("/run-python", (req, res) => {
+  inputQueue = [];
+  currentCode = req.body.code;
+
+  // ค้นหาข้อความใน input() ครั้งแรกในโค้ด
+  const inputPrompts = [];
+  const inputRegex = /input\(["'](.*?)["']\)/g;
+  let match;
+  while ((match = inputRegex.exec(currentCode)) !== null) {
+    inputPrompts.push(match[1]);
+  }
+
+  // ถ้าพบข้อความ input ให้ส่งข้อความแรกกลับมาเลย
+  if (inputPrompts.length > 0) {
+    waitingForInput = true;
+    console.log(inputPrompts[1]);
+    res.json({ waitingForInput: true, prompt: inputPrompts[0] });
+    return;
+  } else {
+    // ถ้าไม่มี input ให้รันโค้ดทั้งหมด
+    const codeTemplate = `
+input_values = ${JSON.stringify(inputQueue)};
+def input():
+    if not input_values:
+        raise IndexError("รอข้อมูลเพิ่ม")  # ข้อความแจ้งให้รอ input เพิ่ม
+    return input_values.pop(0)
+
+${currentCode}
+`;
+
+    const filePath = path.join(__dirname, "temp.py");
+
+    fs.writeFile(filePath, codeTemplate, (err) => {
+      if (err) {
+        return res.json({ output: "", error: "Error writing file" });
+      }
+
+      exec(`python3 ${filePath}`, (error, stdout, stderr) => {
+        fs.unlink(filePath, () => {});
+
+        if (stderr.includes("รอข้อมูลเพิ่ม")) {
+          waitingForInput = true;
+          console.log("dasdasdasdsadwww");
+          res.json({ waitingForInput: true, prompt: inputPrompts[0] });
+        } else if (error) {
+          console.log("w222");
+          res.json({ output: "", error: stderr });
+        } else {
+          res.json({ output: stdout, error: "" });
+        }
+      });
+    });
+  }
+});
+
+app.post("/send-input", (req, res) => {
+  if (!waitingForInput) {
+    return res.json({ success: false, error: "ไม่อยู่ในสถานะรอข้อมูล" });
+  }
+
+  const userInput = req.body.userInput;
+  inputQueue.push(userInput); // เก็บข้อมูลของผู้ใช้ใน inputQueue
+
+  // อัปเดต input ใน template ที่ไม่เรียก currentCode ซ้ำ
+  const updatedCodeTemplate = `
+input_values = ${JSON.stringify(inputQueue)};
+def input(prompt=""):
+    if not input_values:
+        raise IndexError("รอข้อมูลเพิ่ม")
+    return input_values.pop(0)
+${currentCode}
+`;
+
+  const filePath = path.join(__dirname, "temp.py");
+
+  fs.writeFile(filePath, updatedCodeTemplate, (err) => {
+    if (err) {
+      return res.json({ output: "", error: "Error writing file" });
+    }
+
+    exec(`python3 ${filePath}`, (error, stdout, stderr) => {
+      fs.unlink(filePath, () => {});
+
+      waitingForInput = stderr.includes("รอข้อมูลเพิ่ม");
+
+      // ดึง prompt ใหม่ตาม input ล่าสุดโดยใช้ regex
+      const inputRegex = /input\(["'](.*?)["']\)/g;
+      const matches = Array.from(currentCode.matchAll(inputRegex));
+      const prompt = matches[inputQueue.length]
+        ? matches[inputQueue.length][1]
+        : "กรุณาป้อนข้อมูล"; 
+
+      if (waitingForInput) {
+        res.json({ waitingForInput: true, prompt });
+      } else if (error) {
+        res.json({ output: "", error: stderr });
+      } else {
+        res.json({ output: stdout, error: "" });
+      }
+    });
+  });
+});
+// app.listen(5001, () => {
+//   console.log("Server running on http://localhost:5002");
+// });
+
+app.post("/run-python-test", (req, res) => {
+  // สร้าง route POST ชื่อ /run-python-test
+  let code = req.body.code; // รับโค้ด Python ที่ผู้ใช้ส่งมาทาง request body
+  const filePath = path.join(__dirname, "temp.py"); // กำหนดเส้นทางของไฟล์ชั่วคราวเพื่อบันทึกโค้ด
+
+  db.query("SELECT * FROM answer", (err, results) => {
+    // ค้นหาข้อมูลจากตาราง answer ในฐานข้อมูล
+    if (err) {
+      // ถ้ามีข้อผิดพลาดในการ query
+      console.error("Error querying the database:", err);
+      return res.json({ output: "", error: "Error querying the database" }); // ส่ง error กลับไป
+    }
+
+    console.log("Query Results:", results); // แสดงผลการ query บน console
+
+    results.forEach((val) => {
+      // วนลูปแต่ละคำตอบในผลลัพธ์ที่ได้จากฐานข้อมูล
+      if (val.ans_input && !code.includes("input(")) {
+        // ตรวจสอบว่าคำตอบในฐานข้อมูลต้องการ input แต่โค้ดของผู้ใช้ไม่มีการใช้ input()
+        return res.json({
+          output: "",
+          error: "Error: Expected input in the code but none was found.",
+          score: 0,
+        }); // ส่งข้อผิดพลาดและคะแนนเป็น 0 กลับไป
+      }
+
+      if (val.ans_input) {
+        // ถ้า ans_input มีค่าหมายความว่าต้องการ input
+        const inputCommands = val.ans_input
+          .split("\n")
+          .map((inputVal) => `input_values.append('${inputVal.trim()}')`)
+          .join("\n"); // แปลง input แต่ละบรรทัดเป็นคำสั่ง input_values.append()
+
+        // โค้ดใหม่ที่จะใช้ input_values สำหรับเก็บค่าจาก ans_input
+        code = `
+input_values = []
+def input(prompt=''):
+    return input_values.pop(0)
+${inputCommands}
+${code}
+        `;
+      }
+
+      fs.writeFile(filePath, code, (err) => {
+        // เขียนโค้ดไปยังไฟล์ temp.py
+        if (err) {
+          // ตรวจสอบข้อผิดพลาดการเขียนไฟล์
+          return res.json({ output: "", error: "Error writing file" }); // ส่ง error กลับไปถ้ามีปัญหา
+        }
+
+        exec(`python3 ${filePath}`, (error, stdout, stderr) => {
+          // รันไฟล์ temp.py ด้วย Python 3
+          fs.unlink(filePath, (unlinkErr) => {
+            // ลบไฟล์ temp.py หลังจากรันเสร็จ
+            if (unlinkErr) {
+              console.error("Error deleting temporary file", unlinkErr); // แสดง error ถ้ามีปัญหาในการลบไฟล์
+            }
+          });
+
+          if (error) {
+            // ตรวจสอบข้อผิดพลาดในการรัน Python
+            res.json({ output: "", error: stderr, score: 0 }); // ส่งข้อผิดพลาดกลับไปและคะแนน 0 ถ้ามีปัญหาในการรัน
+          } else {
+            const ansOutputTrimmed = val.ans_output.trim().toLowerCase(); // ตัดช่องว่างและแปลงตัวอักษรเป็นพิมพ์เล็กของ ans_output
+            const stdoutTrimmed = stdout.trim().toLowerCase(); // ตัดช่องว่างและแปลงตัวอักษรเป็นพิมพ์เล็กของ stdout จากการรันโค้ด
+
+            const distance = levenshtein.get(ansOutputTrimmed, stdoutTrimmed); // คำนวณระยะทาง Levenshtein ระหว่าง ans_output และ stdout
+            const maxLen = Math.max(
+              ansOutputTrimmed.length,
+              stdoutTrimmed.length
+            ); // คำนวณความยาวสูงสุดของสองข้อความ
+            const similarity = ((maxLen - distance) / maxLen) * 100; // คำนวณเปอร์เซ็นต์ความคล้ายคลึง
+            const score = Math.round(similarity); // ปัดค่าคะแนนให้เป็นจำนวนเต็ม
+
+            console.log("Answer Output:", val.ans_output); // แสดงคำตอบจากฐานข้อมูล
+            console.log("Stdout Output:", stdout); // แสดงผลลัพธ์ที่ได้จากการรันโค้ดของผู้ใช้
+            console.log("Similarity Score:", score); // แสดงคะแนนความคล้ายคลึงระหว่าง ans_output และ stdout
+
+            res.json({ output: stdout, error: "", score }); // ส่งผลลัพธ์และคะแนนกลับไปให้ผู้ใช้
+          }
+        });
+      });
+    });
+  });
+});
+
+app.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
+});
+
+
+
+print("hello")
+x = int(input("number input : "))
+for i in range(x):
+    print(i)
+y = int(input("number input : "))
+for j in range(y):
+    print(j)
+print("hello")
