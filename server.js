@@ -8,7 +8,7 @@ const mysql = require("mysql2/promise");
 const app = express();
 const port = 5002;
 const levenshtein = require("fast-levenshtein"); // นำเข้าไลบรารี Levenshtein สำหรับคำนวณความคล้ายคลึงของข้อความ
-
+const { v4: uuidv4 } = require("uuid");
 app.use(cors());
 app.use(bodyParser.json());
 const dbConfig = {
@@ -22,7 +22,6 @@ const dbConfig = {
 async function initializeDB() {
   try {
     const connection = await mysql.createConnection(dbConfig);
-    console.log("Database connected");
     return connection;
   } catch (err) {
     console.error("Error connecting to the database:", err);
@@ -37,7 +36,6 @@ let lastPrompt = "";
 app.post("/run-python", (req, res) => {
   inputQueue = []; // เริ่มต้น queue สำหรับเก็บข้อมูล input ของผู้ใช้
   currentCode = req.body.code; // เก็บโค้ด Python ที่รับมาจากไคลเอนต์
-  console.log(currentCode);
 
   // ตัวแปรสำหรับเก็บ input prompt และเลขบรรทัดของ input() ที่เจอ
   const inputPrompts = [];
@@ -221,7 +219,7 @@ app.post("/run-python-test", async (req, res) => {
     );
 
     const allResults = []; // Array สำหรับเก็บผลลัพธ์ทั้งหมด
-    console.log(code);
+
 
     for (const val of results) {
       // ตรวจสอบว่าคำตอบในฐานข้อมูลต้องการ input แต่โค้ดของผู้ใช้ไม่มีการใช้ input()
@@ -321,7 +319,9 @@ LEFT JOIN (
 ) AS avg_data ON chapter.chapter_id = avg_data.id_chapter
 WHERE 
     user.user_id = ?
-    AND chapter.delete_up IS NULL;`,
+    AND chapter.delete_up IS NULL
+GROUP BY  chapter.chapter_id
+    `,
       [id, id]
     );
 
@@ -342,7 +342,6 @@ app.get("/send-data-exercises", async (req, res) => {
     connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const id_chapter = req.query.id_chapter;
     const id_user = req.query.id_user;
-
     const [rows] = await connection.execute(
       `
         SELECT *,user_exercise.score FROM  user_exercise
@@ -351,7 +350,6 @@ LEFT join chapter on exercise.id_chapter = chapter.chapter_id
 where chapter.chapter_id = ?  and user_exercise.id_user = ?`,
       [id_chapter, id_user]
     );
-    console.log(rows);
     res.json({ data: rows });
   } catch (err) {
     console.error("Error fetching data:", err);
@@ -431,7 +429,6 @@ app.get("/send-data-lesson", async (req, res) => {
       SELECT * FROM lesson WHERE id_chapter = ?`,
       [id_chapter]
     );
-    console.log(rows);
     res.json({ data: rows });
   } catch (err) {
     console.error("Error fetching data:", err);
@@ -490,20 +487,27 @@ app.post("/check-login", async (req, res) => {
 
   try {
     // ตรวจสอบข้อมูล email และ pwd จากฐานข้อมูล
-    const connection = await initializeDB(); 
+    const connection = await initializeDB();
     const [rows] = await connection.execute(
       "SELECT * FROM user WHERE email = ? AND pwd = ?",
       [email, pwd]
     );
-    console.log(rows[0])
     if (rows.length > 0) {
       const user = rows[0]; // ข้อมูลผู้ใช้
       const payload = { userId: user.user_id, role: user.role }; // ข้อมูลใน JWT
-      
-      // สร้าง JWT Token
-      const token = jwt.sign(payload, process.env.JWT_SECRET_KEY, { expiresIn: "1d" }); // ใช้ secret key จาก .env
 
-      res.json({ status: "success", token, userId: user.user_id , std_id: user.stdId,role: user.role}); // ส่ง token และ userId กลับ
+      // สร้าง JWT Token
+      const token = jwt.sign(payload, process.env.JWT_SECRET_KEY, {
+        expiresIn: "1d",
+      }); // ใช้ secret key จาก .env
+
+      res.json({
+        status: "success",
+        token,
+        userId: user.user_id,
+        std_id: user.stdId,
+        role: user.role,
+      }); // ส่ง token และ userId กลับ
     } else {
       res.status(401).json({ status: "error", message: "Invalid credentials" }); // ข้อมูลล็อกอินไม่ถูกต้อง
     }
@@ -520,9 +524,7 @@ app.post("/data-user", async (req, res) => {
     const user_id = req.body.user_id;
 
     const [rows] = await connection.execute(
-      `SELECT * FROM user
-where user_id = ?
-`,
+      `SELECT * FROM user WHERE user_id = ? AND delete_up IS NULL`,
       [user_id]
     );
 
@@ -542,11 +544,29 @@ app.post("/data-user-all", async (req, res) => {
   try {
     connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
 
-
     const [rows] = await connection.execute(
-      `select * from user`
+      `SELECT 
+        user.user_id,
+        stdId,
+        user_lname,
+        user.user_name AS user_name,
+        ROUND(SUM(user_exercise.score) / COUNT(user_exercise.score), 2) AS avg_score
+      FROM 
+        user
+      LEFT JOIN 
+        user_exercise ON user.user_id = user_exercise.id_user
+      LEFT JOIN 
+        exercise ON user_exercise.id_exe = exercise.exe_id
+      LEFT JOIN 
+        chapter ON exercise.id_chapter = chapter.chapter_id
+      WHERE 
+        chapter.delete_up IS NULL
+        AND user.delete_up IS NULL
+      GROUP BY 
+        user.user_id, user_name
+      ORDER BY 
+        user.user_id`
     );
-    console.log(rows);
     res.json({ data: rows });
   } catch (err) {
     console.error("Error fetching data:", err);
@@ -557,9 +577,6 @@ app.post("/data-user-all", async (req, res) => {
     }
   }
 });
-
-
-
 app.post("/data-lesson", async (req, res) => {
   let connection;
   try {
@@ -568,7 +585,7 @@ app.post("/data-lesson", async (req, res) => {
       `SELECT id_chapter,count(*) as total_chapter,chapter.name FROM lesson
 LEFT join chapter on lesson.id_chapter = chapter.chapter_id
 GROUP by id_chapter
-`,
+`
     );
 
     res.json({ data: rows });
@@ -582,16 +599,15 @@ GROUP by id_chapter
   }
 });
 
-
 app.post("/data-chapter", async (req, res) => {
   let connection;
   try {
     connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const [rows] = await connection.execute(
-      `SELECT chapter_id,name,count(*) as total_exe FROM chapter
+      `SELECT chapter_id,name,count(*) as total_exe ,assigned_start,assigned_end  FROM chapter
 LEFT join exercise on chapter.chapter_id = exercise.id_chapter
 GROUP by chapter.chapter_id
-`,
+`
     );
 
     res.json({ data: rows });
@@ -602,6 +618,161 @@ GROUP by chapter.chapter_id
     if (connection) {
       await connection.end(); // ปิดการเชื่อมต่อ
     }
+  }
+});
+
+app.post("/data-chapter-select-exe", async (req, res) => {
+  let connection;
+  const chapter_id = req.body.chapter_id;
+  try {
+    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    const [rows] = await connection.execute(
+      `SELECT * FROM chapter
+LEFT join exercise on chapter.chapter_id = exercise.id_chapter
+WHERE chapter.chapter_id = ?
+`,
+      [chapter_id]
+    );
+
+    res.json({ data: rows });
+  } catch (err) {
+    console.error("Error fetching data:", err);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    if (connection) {
+      await connection.end(); // ปิดการเชื่อมต่อ
+    }
+  }
+});
+
+app.post("/data-select-exe", async (req, res) => {
+  let connection;
+  const id_exe_admin = req.body.id_exe_admin;
+  try {
+    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    const [rows] = await connection.execute(
+      `SELECT * FROM exercise WHERE exe_id =  ?
+`,
+      [id_exe_admin]
+    );
+
+    res.json({ data: rows });
+  } catch (err) {
+    console.error("Error fetching data:", err);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    if (connection) {
+      await connection.end(); // ปิดการเชื่อมต่อ
+    }
+  }
+});
+
+app.post("/send-data-answer", async (req, res) => {
+  let connection;
+  const id_exe = req.body.id_exe;
+  try {
+    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    const [rows] = await connection.execute(
+      `SELECT * FROM answer
+WHERE id_exe = ?
+`,
+      [id_exe]
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    console.error("Error fetching data:", err);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    if (connection) {
+      await connection.end(); // ปิดการเชื่อมต่อ
+    }
+  }
+});
+
+// แก้ตรงนี้
+app.post("/add/answers", async (req, res) => {
+  const { question_id, ans_input, ans_output, code } = req.body;
+  try {
+    // เพิ่มคำตอบใหม่
+    let connection = await initializeDB();
+    const answer_id = uuidv4();
+
+    // เพิ่มข้อมูลในฐานข้อมูล
+    const result = await connection.query(
+      "INSERT INTO answer (answer_id, id_exe, ans_input, ans_output, code) VALUES (?, ?, ?, ?, ?)",
+      [answer_id, question_id, ans_input, ans_output, code]
+    );
+    res.status(201).json({ success: true, id: result.insertId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: "Database error" });
+  }
+});
+
+app.post("/api/answers/:id", async (req, res) => {
+  const { id } = req.params;
+  const { ans_input, ans_output, code } = req.body;
+
+  try {
+    // แก้ไขคำตอบเดิม
+    let connection = await initializeDB();
+    await connection.query(
+      "UPDATE answer SET ans_input = ?, ans_output = ?, code = ? WHERE answer_id = ?",
+      [ans_input, ans_output, code, id]
+    );
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: "Database error" });
+  }
+});
+
+app.post("/api/questions/:id", async (req, res) => {
+  const { id } = req.params;
+  const { question } = req.body;
+
+  try {
+    // แก้ไขคำตอบเดิม
+    let connection = await initializeDB();
+    await connection.query(
+      "UPDATE exercise SET question = ? WHERE exe_id = ?",
+      [question, id]
+    );
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: "Database error" });
+  }
+});
+
+const formatMySQLDatetime = (datetime) => {
+  const date = new Date(datetime);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+};
+
+app.put("/api/chapters/:id", async (req, res) => {
+  const { id } = req.params;
+  const { name, assigned_start, assigned_end } = req.body;
+
+  try {
+    const formattedStart = formatMySQLDatetime(assigned_start);
+    const formattedEnd = formatMySQLDatetime(assigned_end);
+
+    let connection = await initializeDB();
+    await connection.query(
+      "UPDATE chapter SET name = ?, assigned_start = ?, assigned_end = ? WHERE chapter_id = ?",
+      [name, formattedStart, formattedEnd, id]
+    );
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: "Database error" });
   }
 });
 
