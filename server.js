@@ -18,16 +18,17 @@ const dbConfig = {
   database: "dbcpkkbs", // เปลี่ยนชื่อฐานข้อมูลตามที่คุณใช้งาน
 };
 
+let connection;
 // สร้างการเชื่อมต่อฐานข้อมูล MySQL
 async function initializeDB() {
   try {
-    const connection = await mysql.createConnection(dbConfig);
+    connection = await mysql.createConnection(dbConfig);
     return connection;
   } catch (err) {
     console.error("Error connecting to the database:", err);
   }
 }
-
+initializeDB();
 let inputQueue = []; // Queue สำหรับเก็บ input ของผู้ใช้
 let waitingForInput = false;
 let currentCode = ""; // เก็บโค้ด Python ที่ต้องการรัน
@@ -210,7 +211,7 @@ app.post("/run-python-test", async (req, res) => {
   const filePath = path.join(__dirname, "temp.py");
 
   try {
-    const connection = await initializeDB();
+    // const connection = await initializeDB();
     const idExe = req.body.id_exe;
     const iduserExe = req.body.id;
     const [results] = await connection.execute(
@@ -285,7 +286,7 @@ ${code}
 app.get("/send-data-chapter", async (req, res) => {
   let connection;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const id = req.query.id_user;
     const [rows] = await connection.execute(
       `
@@ -339,7 +340,7 @@ GROUP BY  chapter.chapter_id
 app.get("/send-data-exercises", async (req, res) => {
   let connection;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const id_chapter = req.query.id_chapter;
     const id_user = req.query.id_user;
     const [rows] = await connection.execute(
@@ -364,7 +365,7 @@ where chapter.chapter_id = ?  and user_exercise.id_user = ?`,
 app.get("/send-work-exercises", async (req, res) => {
   let connection;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const id_chapter = "1";
     const id_userExe = req.query.id_userExe;
 
@@ -391,7 +392,7 @@ where user_exercise.user_exe_id = ?
 app.post("/send-send-score", async (req, res) => {
   let connection;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
 
     const code = req.body.code; // ดึง code จาก body ของ request
     const iduserExe = req.body.id; // ดึง iduserExe จาก body ของ request
@@ -421,7 +422,7 @@ app.post("/send-send-score", async (req, res) => {
 app.get("/send-data-lesson", async (req, res) => {
   let connection;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const id_chapter = req.query.id_chapter;
 
     const [rows] = await connection.execute(
@@ -487,7 +488,7 @@ app.post("/check-login", async (req, res) => {
 
   try {
     // ตรวจสอบข้อมูล email และ pwd จากฐานข้อมูล
-    const connection = await initializeDB();
+    // const connection = await initializeDB();
     const [rows] = await connection.execute(
       "SELECT * FROM user WHERE email = ? AND pwd = ?",
       [email, pwd]
@@ -520,7 +521,7 @@ app.post("/check-login", async (req, res) => {
 app.post("/data-user", async (req, res) => {
   let connection;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const user_id = req.body.user_id;
 
     const [rows] = await connection.execute(
@@ -542,7 +543,7 @@ app.post("/data-user", async (req, res) => {
 app.post("/data-user-all", async (req, res) => {
   let connection;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
 
     const [rows] = await connection.execute(
       `SELECT 
@@ -580,7 +581,7 @@ app.post("/data-user-all", async (req, res) => {
 app.post("/data-lesson", async (req, res) => {
   let connection;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const [rows] = await connection.execute(
       `SELECT id_chapter,count(*) as total_chapter,chapter.name FROM lesson
 LEFT join chapter on lesson.id_chapter = chapter.chapter_id
@@ -602,7 +603,7 @@ GROUP by id_chapter
 app.post("/data-chapter", async (req, res) => {
   let connection;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const [rows] = await connection.execute(
       `SELECT chapter_id,name,count(*) as total_exe ,assigned_start,assigned_end  FROM chapter
 LEFT join exercise on chapter.chapter_id = exercise.id_chapter
@@ -625,7 +626,7 @@ app.post("/data-chapter-select-exe", async (req, res) => {
   let connection;
   const chapter_id = req.body.chapter_id;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const [rows] = await connection.execute(
       `SELECT * FROM chapter
 LEFT join exercise on chapter.chapter_id = exercise.id_chapter
@@ -649,7 +650,7 @@ app.post("/data-select-exe", async (req, res) => {
   let connection;
   const id_exe_admin = req.body.id_exe_admin;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const [rows] = await connection.execute(
       `SELECT * FROM exercise WHERE exe_id =  ?
 `,
@@ -671,7 +672,7 @@ app.post("/send-data-answer", async (req, res) => {
   let connection;
   const id_exe = req.body.id_exe;
   try {
-    connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
+    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const [rows] = await connection.execute(
       `SELECT * FROM answer
 WHERE id_exe = ?
@@ -694,7 +695,7 @@ app.post("/add/answers", async (req, res) => {
   const { question_id, ans_input, ans_output, code } = req.body;
   try {
     // เพิ่มคำตอบใหม่
-    let connection = await initializeDB();
+    // let connection = await initializeDB();
     const answer_id = uuidv4();
 
     // เพิ่มข้อมูลในฐานข้อมูล
@@ -715,7 +716,7 @@ app.post("/api/answers/:id", async (req, res) => {
 
   try {
     // แก้ไขคำตอบเดิม
-    let connection = await initializeDB();
+    // let connection = await initializeDB();
     await connection.query(
       "UPDATE answer SET ans_input = ?, ans_output = ?, code = ? WHERE answer_id = ?",
       [ans_input, ans_output, code, id]
@@ -733,7 +734,7 @@ app.post("/api/questions/:id", async (req, res) => {
 
   try {
     // แก้ไขคำตอบเดิม
-    let connection = await initializeDB();
+    // let connection = await initializeDB();
     await connection.query(
       "UPDATE exercise SET question = ? WHERE exe_id = ?",
       [question, id]
@@ -764,7 +765,7 @@ app.put("/api/chapters/:id", async (req, res) => {
     const formattedStart = formatMySQLDatetime(assigned_start);
     const formattedEnd = formatMySQLDatetime(assigned_end);
 
-    let connection = await initializeDB();
+    // let connection = await initializeDB();
     await connection.query(
       "UPDATE chapter SET name = ?, assigned_start = ?, assigned_end = ? WHERE chapter_id = ?",
       [name, formattedStart, formattedEnd, id]
