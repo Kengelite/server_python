@@ -9,32 +9,41 @@ const app = express();
 const port = 5002;
 const levenshtein = require("fast-levenshtein"); // นำเข้าไลบรารี Levenshtein สำหรับคำนวณความคล้ายคลึงของข้อความ
 const { v4: uuidv4 } = require("uuid");
+
 app.use(cors());
 app.use(bodyParser.json());
+// Database Pool Configuration
 const dbConfig = {
-  host: "localhost",
-  user: "root",
-  password: "",
-  database: "dbcpkkbs", // เปลี่ยนชื่อฐานข้อมูลตามที่คุณใช้งาน
+  host: "147.50.227.17",
+  user: "drnadech_dbpython",
+  password: "X$17cwg80",
+  database: "dbpython",
+  waitForConnections: true,
+  connectionLimit: 500, // เพิ่มจำนวนการเชื่อมต่อสูงสุดที่รองรับ
+  queueLimit: 0, // ไม่จำกัดคิวการเชื่อมต่อ
 };
 
-let connection;
-// สร้างการเชื่อมต่อฐานข้อมูล MySQL
-async function initializeDB() {
+
+// Create a MySQL Connection Pool
+const pool = mysql.createPool(dbConfig);
+
+// Get a connection from the pool
+async function getConnection() {
   try {
-    connection = await mysql.createConnection(dbConfig);
-    return connection;
+    return await pool.getConnection();
   } catch (err) {
-    console.error("Error connecting to the database:", err);
+    console.error("Error getting a connection from the pool:", err);
+    throw err;
   }
 }
-initializeDB();
+
 let inputQueue = []; // Queue สำหรับเก็บ input ของผู้ใช้
 let waitingForInput = false;
 let currentCode = ""; // เก็บโค้ด Python ที่ต้องการรัน
 let lastPrompt = "";
 
 app.post("/run-python", (req, res) => {
+  // connection = await pool.getConnection();
   inputQueue = []; // เริ่มต้น queue สำหรับเก็บข้อมูล input ของผู้ใช้
   currentCode = req.body.code; // เก็บโค้ด Python ที่รับมาจากไคลเอนต์
 
@@ -147,6 +156,7 @@ ${currentCode}
 
 // ฟังก์ชันสำหรับการจัดการ input จากผู้ใช้
 app.post("/send-input", (req, res) => {
+  // connection = await pool.getConnection();
   if (!waitingForInput) {
     return res.json({ success: false, error: "ไม่อยู่ในสถานะรอข้อมูล" });
   }
@@ -207,11 +217,12 @@ ${currentCode}
 // });
 
 app.post("/run-python-test", async (req, res) => {
+  connection = await pool.getConnection();
   const code = req.body.code;
   const filePath = path.join(__dirname, "temp.py");
 
   try {
-    // const connection = await initializeDB();
+    // connection = await pool.getConnection();
     const idExe = req.body.id_exe;
     const iduserExe = req.body.id;
     const [results] = await connection.execute(
@@ -220,7 +231,6 @@ app.post("/run-python-test", async (req, res) => {
     );
 
     const allResults = []; // Array สำหรับเก็บผลลัพธ์ทั้งหมด
-
 
     for (const val of results) {
       // ตรวจสอบว่าคำตอบในฐานข้อมูลต้องการ input แต่โค้ดของผู้ใช้ไม่มีการใช้ input()
@@ -284,7 +294,7 @@ ${code}
   }
 });
 app.get("/send-data-chapter", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const id = req.query.id_user;
@@ -332,13 +342,14 @@ GROUP BY  chapter.chapter_id
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      await connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.get("/send-data-exercises", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
+
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const id_chapter = req.query.id_chapter;
@@ -357,13 +368,13 @@ where chapter.chapter_id = ?  and user_exercise.id_user = ?`,
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.get("/send-work-exercises", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const id_chapter = "1";
@@ -384,13 +395,13 @@ where user_exercise.user_exe_id = ?
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.post("/send-send-score", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
 
@@ -414,13 +425,13 @@ app.post("/send-send-score", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.get("/send-data-lesson", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const id_chapter = req.query.id_chapter;
@@ -436,12 +447,13 @@ app.get("/send-data-lesson", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.post("/run-python-simple", async (req, res) => {
+  connection = await pool.getConnection();
   const { code, input } = req.body; // รับ `code` และ `input` จาก client
   const filePath = path.join(__dirname, "temp.py");
 
@@ -484,42 +496,45 @@ const dotenv = require("dotenv");
 dotenv.config(); // โหลดค่าจาก .env
 
 app.post("/check-login", async (req, res) => {
+  let connection;
   const { email, pwd } = req.body;
 
   try {
-    // ตรวจสอบข้อมูล email และ pwd จากฐานข้อมูล
-    // const connection = await initializeDB();
+    connection = await getConnection();
     const [rows] = await connection.execute(
       "SELECT * FROM user WHERE email = ? AND pwd = ?",
       [email, pwd]
     );
-    if (rows.length > 0) {
-      const user = rows[0]; // ข้อมูลผู้ใช้
-      const payload = { userId: user.user_id, role: user.role }; // ข้อมูลใน JWT
 
-      // สร้าง JWT Token
+    if (rows.length > 0) {
+      const user = rows[0];
+      const payload = { userId: user.user_id, role: user.role };
+
       const token = jwt.sign(payload, process.env.JWT_SECRET_KEY, {
         expiresIn: "1d",
-      }); // ใช้ secret key จาก .env
+      });
 
       res.json({
         status: "success",
         token,
         userId: user.user_id,
-        std_id: user.stdId,
         role: user.role,
-      }); // ส่ง token และ userId กลับ
+      });
     } else {
-      res.status(401).json({ status: "error", message: "Invalid credentials" }); // ข้อมูลล็อกอินไม่ถูกต้อง
+      res.status(401).json({ status: "error", message: "Invalid credentials" });
     }
   } catch (err) {
-    console.error("Server Error:", err);
+    console.error("Error checking login:", err);
     res.status(500).json({ status: "error", message: "Server error" });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 });
 
 app.post("/data-user", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const user_id = req.body.user_id;
@@ -535,13 +550,13 @@ app.post("/data-user", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.post("/data-user-all", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
 
@@ -574,12 +589,12 @@ app.post("/data-user-all", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 app.post("/data-lesson", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const [rows] = await connection.execute(
@@ -595,13 +610,13 @@ GROUP by id_chapter
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.post("/data-chapter", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
     const [rows] = await connection.execute(
@@ -617,13 +632,13 @@ GROUP by chapter.chapter_id
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.post("/data-chapter-select-exe", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   const chapter_id = req.body.chapter_id;
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
@@ -641,13 +656,13 @@ WHERE chapter.chapter_id = ?
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.post("/data-select-exe", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   const id_exe_admin = req.body.id_exe_admin;
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
@@ -663,13 +678,13 @@ app.post("/data-select-exe", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 app.post("/send-data-answer", async (req, res) => {
-  let connection;
+  connection = await pool.getConnection();
   const id_exe = req.body.id_exe;
   try {
     // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
@@ -685,13 +700,14 @@ WHERE id_exe = ?
     res.status(500).json({ error: "Internal server error" });
   } finally {
     if (connection) {
-      await connection.end(); // ปิดการเชื่อมต่อ
+      connection.release(); // ปิดการเชื่อมต่อ
     }
   }
 });
 
 // แก้ตรงนี้
 app.post("/add/answers", async (req, res) => {
+  connection = await pool.getConnection();
   const { question_id, ans_input, ans_output, code } = req.body;
   try {
     // เพิ่มคำตอบใหม่
@@ -711,6 +727,7 @@ app.post("/add/answers", async (req, res) => {
 });
 
 app.post("/api/answers/:id", async (req, res) => {
+  connection = await pool.getConnection();
   const { id } = req.params;
   const { ans_input, ans_output, code } = req.body;
 
@@ -729,6 +746,7 @@ app.post("/api/answers/:id", async (req, res) => {
 });
 
 app.post("/api/questions/:id", async (req, res) => {
+  connection = await pool.getConnection();
   const { id } = req.params;
   const { question } = req.body;
 
@@ -758,6 +776,7 @@ const formatMySQLDatetime = (datetime) => {
 };
 
 app.put("/api/chapters/:id", async (req, res) => {
+  connection = await pool.getConnection();
   const { id } = req.params;
   const { name, assigned_start, assigned_end } = req.body;
 
