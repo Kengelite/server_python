@@ -23,7 +23,6 @@ const dbConfig = {
   queueLimit: 0, // ไม่จำกัดคิวการเชื่อมต่อ
 };
 
-
 // Create a MySQL Connection Pool
 const pool = mysql.createPool(dbConfig);
 
@@ -246,11 +245,21 @@ app.post("/run-python-test", async (req, res) => {
       let updatedCode = code;
 
       if (val.ans_input) {
-        const inputCommands = val.ans_input
-          .split("\n")
-          .map((inputVal) => `input_values.append('${inputVal.trim()}')`)
-          .join("\n");
+        // const inputCommands = val.ans_input
+        //   .split("\n")
+        //   .map((inputVal) => `input_values.append('${inputVal.trim()}')`)
+        //   .join("\n");
+        const cleanInput = val.ans_input
+          .split("\n") // แยกบรรทัด
+          .map((line) => {
+            const parts = line.split(":"); // แยกข้อความก่อนและหลัง ":"
+            return parts.length > 1 ? parts[1].trim() : ""; // เก็บเฉพาะค่าหลัง ":" และลบช่องว่าง
+          })
+          .filter((line) => line !== ""); // กรองบรรทัดที่ว่างออก
 
+        const inputCommands = cleanInput
+          .map((inputVal) => `input_values.append('${inputVal}')`) // แปลงเป็นคำสั่ง append
+          .join("\n");
         updatedCode = `
 input_values = []
 def input(prompt=''):
@@ -268,8 +277,16 @@ ${code}
           if (error) {
             resolve({ output: "", error: stderr, score: 0 });
           } else {
-            const ansOutputTrimmed = val.ans_output.trim().toLowerCase();
-            const stdoutTrimmed = stdout.trim().toLowerCase();
+            const normalizeText = (text) =>
+              text
+                .replace(/\r\n/g, "\n") // ปรับการขึ้นบรรทัดให้เป็นรูปแบบเดียวกัน
+                .replace(/\s+$/g, "") // ลบช่องว่างท้ายข้อความ
+                .replace(/ +/g, " ") // ลดช่องว่างหลายช่องให้เหลือเพียงช่องเดียว
+                .trim()
+                .toLowerCase();
+
+            const ansOutputTrimmed = normalizeText(val.ans_output);
+            const stdoutTrimmed = normalizeText(stdout);
 
             const distance = levenshtein.get(ansOutputTrimmed, stdoutTrimmed);
             const maxLen = Math.max(
@@ -331,12 +348,13 @@ LEFT JOIN (
 WHERE 
     user.user_id = ?
     AND chapter.delete_up IS NULL
+    and status_open = 0
 GROUP BY  chapter.chapter_id
     `,
       [id, id]
     );
 
-    res.json({ data: rows });
+    res.json({ data: rows, serverTime: new Date().toISOString() });
   } catch (err) {
     console.error("Error fetching data:", err);
     res.status(500).json({ error: "Internal server error" });
