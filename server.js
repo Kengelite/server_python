@@ -243,23 +243,28 @@ app.post("/run-python-test", async (req, res) => {
       }
 
       let updatedCode = code;
-
       if (val.ans_input) {
-        // const inputCommands = val.ans_input
-        //   .split("\n")
-        //   .map((inputVal) => `input_values.append('${inputVal.trim()}')`)
-        //   .join("\n");
-        const cleanInput = val.ans_input
-          .split("\n") // แยกบรรทัด
-          .map((line) => {
-            const parts = line.split(":"); // แยกข้อความก่อนและหลัง ":"
-            return parts.length > 1 ? parts[1].trim() : ""; // เก็บเฉพาะค่าหลัง ":" และลบช่องว่าง
-          })
-          .filter((line) => line !== ""); // กรองบรรทัดที่ว่างออก
+        let inputCommands;
 
-        const inputCommands = cleanInput
-          .map((inputVal) => `input_values.append('${inputVal}')`) // แปลงเป็นคำสั่ง append
-          .join("\n");
+        if (val.ans_input.includes(":")) {
+          // กรณีที่ ans_input มีเครื่องหมาย ":"
+          const cleanInput = val.ans_input
+            .split("\n") // แยกบรรทัด
+            .map((line) => {
+              const parts = line.split(":"); // แยกข้อความก่อนและหลัง ":"
+              return parts.length > 1 ? parts[1].trim() : ""; // เก็บเฉพาะค่าหลัง ":" และลบช่องว่าง
+            })
+            .filter((line) => line !== ""); // กรองบรรทัดที่ว่างออก
+          inputCommands = cleanInput
+            .map((inputVal) => `input_values.append('${inputVal}')`) // แปลงเป็นคำสั่ง append
+            .join("\n");
+        } else {
+          // กรณีที่ ans_input ไม่มีเครื่องหมาย ":"
+          inputCommands = val.ans_input
+            .split("\n") // แยกบรรทัด
+            .map((inputVal) => `input_values.append('${inputVal.trim()}')`) // ดึงข้อความทั้งบรรทัดมาใช้
+            .join("\n");
+        }
         updatedCode = `
 input_values = []
 def input(prompt=''):
@@ -353,6 +358,7 @@ GROUP BY  chapter.chapter_id
     `,
       [id, id]
     );
+    
 
     res.json({ data: rows, serverTime: new Date().toISOString() });
   } catch (err) {
