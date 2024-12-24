@@ -91,12 +91,10 @@ if not paused:
 `;
 
     const filePath = path.join(__dirname, "temp.py");
-
     fs.writeFile(filePath, codeTemplate, (err) => {
       if (err) {
         return res.json({ output: "", error: "Error writing file" });
       }
-
       exec(`python3 ${filePath}`, (error, stdout, stderr) => {
         fs.unlink(filePath, () => {});
 
@@ -173,7 +171,6 @@ def input(prompt=""):
 
 ${currentCode}
 `;
-
   const filePath = path.join(__dirname, "temp.py");
 
   fs.writeFile(filePath, updatedCodeTemplate, (err) => {
@@ -358,7 +355,8 @@ GROUP BY  chapter.chapter_id
     `,
       [id, id]
     );
-    
+
+
 
     res.json({ data: rows, serverTime: new Date().toISOString() });
   } catch (err) {
@@ -526,7 +524,9 @@ app.post("/check-login", async (req, res) => {
   try {
     connection = await getConnection();
     const [rows] = await connection.execute(
-      "SELECT * FROM user WHERE email = ? AND pwd = ?",
+      `SELECT * FROM user
+      left join section_open on user.section = section_open.id
+      WHERE email = ? AND pwd = ?  and section_open.status = 1`,
       [email, pwd]
     );
 
