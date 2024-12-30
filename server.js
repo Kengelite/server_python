@@ -16,7 +16,7 @@ app.use(bodyParser.json());
 const dbConfig = {
   host: "147.50.227.17",
   user: "drnadech_dbpython",
-  password: "X$17cwg80",
+  password: "94cT*8y4j",
   database: "dbpython",
   waitForConnections: true,
   connectionLimit: 500, // เพิ่มจำนวนการเชื่อมต่อสูงสุดที่รองรับ
