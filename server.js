@@ -356,8 +356,6 @@ GROUP BY  chapter.chapter_id
       [id, id]
     );
 
-
-
     res.json({ data: rows, serverTime: new Date().toISOString() });
   } catch (err) {
     console.error("Error fetching data:", err);
@@ -425,8 +423,6 @@ where user_exercise.user_exe_id = ?
 app.post("/send-send-score", async (req, res) => {
   connection = await pool.getConnection();
   try {
-    // connection = await initializeDB(); // เรียกการเชื่อมต่อฐานข้อมูล
-
     const code = req.body.code; // ดึง code จาก body ของ request
     const iduserExe = req.body.id; // ดึง iduserExe จาก body ของ request
     const Score = req.body.averageScore; // ดึง Score จาก body ของ request
@@ -434,6 +430,30 @@ app.post("/send-send-score", async (req, res) => {
     if (!code || !iduserExe || Score == null) {
       // ตรวจสอบว่าทุกค่ามีค่าหรือไม่
       return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const [check_time_result] = await connection.execute(
+      `SELECT chapter.assigned_end FROM exercise
+       LEFT JOIN chapter ON exercise.id_chapter = chapter.chapter_id
+       LEFT JOIN user_exercise ON exercise.exe_id = user_exercise.id_exe
+       WHERE user_exercise.user_exe_id = ?`,
+      [iduserExe]
+    );
+
+    const assignedEndTime = check_time_result[0]?.assigned_end;
+    const currentTime = new Date();
+
+    if (!assignedEndTime) {
+      return res
+        .status(400)
+        .json({ error: "เกิดข้อผิดพลาดกรุณาลองใหม่อีกครั้ง" });
+    }
+
+    if (new Date(assignedEndTime) < currentTime) {
+      // ตรวจสอบว่าเวลาที่กำหนดเกินเวลาปัจจุบันแล้วหรือไม่
+      return res
+        .status(400)
+        .json({ error: "ไม่สามารถส่งได้เนื่องจากเกินเวลาที่กำหนด" });
     }
 
     const [update_code] = await connection.execute(
@@ -444,7 +464,7 @@ app.post("/send-send-score", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("Error fetching data:", err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "เกิดข้อผิดพลาดกรุณาลองใหม่อีกครั้ง" });
   } finally {
     if (connection) {
       connection.release(); // ปิดการเชื่อมต่อ
@@ -515,6 +535,7 @@ ${code}
 });
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
+const { connect } = require("http2");
 dotenv.config(); // โหลดค่าจาก .env
 
 app.post("/check-login", async (req, res) => {
